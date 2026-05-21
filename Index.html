@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <title>Асман терек</title>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #4facfe; }
+        canvas { display: block; touch-action: none; }
+        #ui {
+            position: absolute; top: 20px; width: 100%; text-align: center;
+            color: white; font-family: 'Arial Black', sans-serif; pointer-events: none;
+            text-shadow: 2px 2px 8px rgba(0,0,0,0.3); z-index: 10;
+        }
+        #speed-tag { color: #ffeb3b; font-size: 16px; background: rgba(0,0,0,0.2); padding: 2px 10px; border-radius: 10px; display: inline-block; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div style="font-size: 50px;" id="score">0</div>
+        <div id="speed-tag">⚡ SPEED: <span id="speed-val">1.0</span>x</div>
+        <div style="font-size: 14px; opacity: 0.8; margin-top: 5px;">BEST: <span id="best">0</span></div>
+    </div>
+    <canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const scoreEl = document.getElementById("score");
+const speedEl = document.getElementById("speed-val");
+const bestEl = document.getElementById("best");
+
+let width, height, scale;
+let score = 0, speedMult = 1, gameActive = true;
+let bestScore = localStorage.getItem('flappyCloudBest') || 0;
+bestEl.innerText = bestScore;
+
+// Конфиг
+const gravity = 0.35, jumpForce = -7.5;
+let bird = { x: 60, y: 300, v: 0, r: 0, w: 38, h: 28, wing: 0 };
+let pipes = [], clouds = [], lastPipeTime = 0, spawnInterval = 1600;
+
+function resize() {
+    width = window.innerWidth; height = window.innerHeight;
+    canvas.width = width; canvas.height = height;
+    scale = Math.min(width / 400, height / 700);
+    if (clouds.length === 0) initClouds();
+}
+
+function initClouds() {
+    for(let i=0; i<6; i++) {
+        clouds.push({
+            x: Math.random() * width,
+            y: Math.random() * (height * 0.6),
+            w: 60 + Math.random() * 60,
+            s: 0.2 + Math.random() * 0.5
+        });
+    }
+}
+
+window.addEventListener('resize', resize);
+resize();
+
+function createPipe() {
+    const gap = 170 * scale;
+    const minH = 80 * scale;
+    const top = minH + Math.random() * (height - gap - minH * 2);
+    pipes.push({ x: width + 60, top, gap, passed: false });
+}
+
+function reset() {
+    if (score > bestScore) {
+        bestScore = score;
+        localStorage.setItem('flappyCloudBest', bestScore);
+        bestEl.innerText = bestScore;
+    }
+    bird.y = height / 2; bird.v = 0; pipes = [];
+    score = 0; speedMult = 1; spawnInterval = 1600;
+    scoreEl.innerText = 0; speedEl.innerText = "1.0";
+}
+
+const input = () => { if(gameActive) bird.v = jumpForce * scale; };
+window.addEventListener('keydown', e => { if(e.code === 'Space') input() });
+window.addEventListener('touchstart', e => { e.preventDefault(); input() }, {passive:false});
+
+function update(timestamp) {
+    bird.v += gravity * scale;
+    bird.y += bird.v;
+    bird.r = Math.min(Math.PI/4, Math.max(-Math.PI/4, bird.v * 0.1));
+    bird.wing += 0.1 * speedMult; // Крыло машет
+
+    if (bird.y + bird.h > height || bird.y < 0) reset();
+
+    // Облака
+    clouds.forEach(c => {
+        c.x -= c.s * speedMult;
+        if (c.x + c.w < 0) { c.x = width + 50; c.y = Math.random() * (height * 0.6); }
+    });
+
+    // Трубы
+    if (timestamp - lastPipeTime > (spawnInterval / speedMult)) {
+        createPipe(); lastPipeTime = timestamp;
+    }
+
+    for (let i = pipes.length - 1; i >= 0; i--) {
+        let p = pipes[i];
+        p.x -= 3.5 * speedMult * scale;
+
+        // Коллизия
+        if (bird.x + bird.w * 0.8 > p.x && bird.x < p.x + 60*scale) {
+            if (bird.y + bird.h * 0.2 < p.top || bird.y + bird.h * 0.8 > p.top + p.gap) reset();
+        }
+
+        if (!p.passed && bird.x > p.x + 60*scale) {
+            p.passed = true; score++;
+            scoreEl.innerText = score;
+            if (score % 2 === 0) {
+                speedMult += 0.1;
+                speedEl.innerText = speedMult.toFixed(1);
+            }
+        }
+        if (p.x < -100) pipes.splice(i, 1);
+    }
+}
+
+function drawBird() {
+    ctx.save();
+    ctx.translate(bird.x + bird.w/2, bird.y + bird.h/2);
+    ctx.rotate(bird.r);
+    
+    // Тело
+    ctx.fillStyle = "#FFD600";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, bird.w/2, bird.h/2, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.stroke();
+
+    // Крыло
+    ctx.fillStyle = "#FFF";
+    let wingY = Math.sin(bird.wing) * 10;
+    ctx.beginPath();
+    ctx.ellipse(-8, wingY, 12, 8, 0, 0, Math.PI*2);
+    ctx.fill(); ctx.stroke();
+
+    // Глаз
+    ctx.fillStyle = "white";
+    ctx.beginPath(); ctx.arc(10, -5, 6, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "black";
+    ctx.beginPath(); ctx.arc(12, -5, 3, 0, Math.PI*2); ctx.fill();
+
+    // Клюв
+    ctx.fillStyle = "#FF5722";
+    ctx.beginPath();
+    ctx.moveTo(15, 0); ctx.lineTo(28, 5); ctx.lineTo(15, 10); ctx.fill(); ctx.stroke();
+    
+    ctx.restore();
+}
+
+function draw(timestamp) {
+    // Небо (Градиент)
+    let sky = ctx.createLinearGradient(0, 0, 0, height);
+    sky.addColorStop(0, '#4facfe'); sky.addColorStop(1, '#00f2fe');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, width, height);
+
+    // Рисуем облака
+    ctx.fillStyle = "rgba(255,255,255,0.7)";
+    clouds.forEach(c => {
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, c.w/3, 0, Math.PI*2);
+        ctx.arc(c.x + c.w/3, c.y - 10, c.w/3, 0, Math.PI*2);
+        ctx.arc(c.x + c.w/1.5, c.y, c.w/3, 0, Math.PI*2);
+        ctx.fill();
+    });
+
+    // Трубы
+    pipes.forEach(p => {
+        let grad = ctx.createLinearGradient(p.x, 0, p.x + 60*scale, 0);
+        grad.addColorStop(0, '#2e7d32'); grad.addColorStop(0.5, '#a5d6a7'); grad.addColorStop(1, '#1b5e20');
+        ctx.fillStyle = grad;
+        ctx.fillRect(p.x, 0, 60*scale, p.top);
+        ctx.fillRect(p.x, p.top + p.gap, 60*scale, height);
+        ctx.strokeStyle = "#000"; ctx.strokeRect(p.x, 0, 60*scale, p.top);
+        ctx.strokeRect(p.x, p.top + p.gap, 60*scale, height);
+    });
+
+    drawBird();
+    update(timestamp);
+    requestAnimationFrame(draw);
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>  
+</html>
